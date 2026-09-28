@@ -1,0 +1,30 @@
+# 依赖与构建产物
+node_modules/
+dist/
+dev-dist/
+.vite/
+
+# 真实配置（含 endpoint / publishableKey，绝不进仓库）
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# WorkBuddy 应用注册标记（含 app id）
+*.genie
+.wbapp_*/
+.workbuddy/
+
+# 编辑器与系统
+.DS_Store
+.idea/
+.vscode/
+*.log
+npm-debug.log*
+
+# 个人数据：备份导出、快照导出（数据都在浏览器 IndexedDB 里，导出件别上传）
+backups/
+*.backup.json
+
+# 开发交接笔记（写给 AI 助手看的过程记录，不是项目的一部分）
+ZCODE-交接文档.md
