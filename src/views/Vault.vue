@@ -117,40 +117,48 @@ function onFile(e) {
 }
 
 // 把还没进库房的复盘 / 学成的技艺 / 成就补录进来（自动归档的兜底入口）
+const backfilling = ref(false)
 async function backfill() {
+  if (backfilling.value) return // 防连点：重复执行会把同一批内容重复插进库房
+  backfilling.value = true
+  try {
   let n = 0
-  const rows = assets.value || []
+  const seen = new Set((assets.value || []).map(a => a.type + ':' + a.refId))
   const reviews = await db.reviews.toArray()
   for (const r of reviews) {
-    if (rows.some(a => a.type === 'review' && a.refId === r.id)) continue
+    if (seen.has('review:' + r.id)) continue
     await db.assets.add({
       type: 'review', module: 'growth', refId: r.id, title: `${r.weekStart.slice(5)} 那一周的回望`,
       summary: [r.text?.good, r.text?.bad, r.text?.next].filter(Boolean).join(' / '), text: '',
       fileName: null, fileData: null, fileSize: null, createdAt: Date.now(), deletedAt: undefined,
     })
+    seen.add('review:' + r.id)
     n++
   }
   const skills = (await db.skills.toArray()).filter(s => s.archivedAt)
   for (const s of skills) {
-    if (rows.some(a => a.type === 'skill' && a.refId === s.id)) continue
+    if (seen.has('skill:' + s.id)) continue
     await db.assets.add({
       type: 'skill', module: 'growth', refId: s.id, title: s.name,
       summary: s.note || '学成，已归档', text: '',
       fileName: null, fileData: null, fileSize: null, createdAt: Date.now(), deletedAt: undefined,
     })
+    seen.add('skill:' + s.id)
     n++
   }
   const achs = await db.achievements.toArray()
   for (const a of achs) {
-    if (rows.some(x => x.type === 'achievement' && x.refId === a.id)) continue
+    if (seen.has('achievement:' + a.id)) continue
     await db.assets.add({
       type: 'achievement', module: 'growth', refId: a.id, title: a.title,
       summary: `${a.date} · ${a.category}${a.desc ? ' · ' + a.desc : ''}`, text: '',
       fileName: null, fileData: null, fileSize: null, createdAt: Date.now(), deletedAt: undefined,
     })
+    seen.add('achievement:' + a.id)
     n++
   }
   alert(n ? `补进来 ${n} 件` : '没有要补的')
+  } finally { backfilling.value = false }
 }
 
 async function del(a) { await db.assets.update(a.id, { deletedAt: Date.now() }) }
@@ -158,8 +166,8 @@ async function del(a) { await db.assets.update(a.id, { deletedAt: Date.now() }) 
 
 <style scoped>
 .vault-tag {
-  display: inline-block; margin-right: 8px; font-size: 12px; font-weight: 700;
-  color: var(--success); background: var(--success-soft); border-radius: 999px; padding: 2px 9px; vertical-align: 2px;
+  display: inline-block; margin-right: 6px; font-size: 11.5px; font-weight: 400;
+  color: var(--success); background: var(--success-soft); border-radius: var(--r-sm); padding: 1px 6px; vertical-align: 2px;
 }
 a.pill { text-decoration: none; }
 </style>

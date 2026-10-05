@@ -28,7 +28,8 @@ const week = useLiveQuery(async () => {
   const s = start.format('YYYY-MM-DD')
   const e = end.format('YYYY-MM-DD')
   const rows = await db.taskInstances.where('date').between(s, e, true, true).toArray()
-  const tasks = Object.fromEntries((await db.tasks.toArray()).map(t => [t.id, t]))
+  // 已删除的任务不该出现在给 AI 的近况里
+  const tasks = Object.fromEntries((await db.tasks.toArray()).filter(t => !t.deletedAt).map(t => [t.id, t]))
   let plan = 0, done = 0, focus = 0
   for (const i of rows) {
     const t = tasks[i.taskId]
@@ -128,44 +129,44 @@ watch(open, v => { if (v) scrollDown() })
 </template>
 
 <style scoped>
-.assistant { position: fixed; right: 22px; bottom: 22px; z-index: 60; }
+.assistant { position: fixed; right: 18px; bottom: 18px; z-index: 60; }
 .ask-fab {
-  width: 54px; height: 54px; border-radius: 50%; cursor: pointer;
+  width: 44px; height: 44px; border-radius: 50%; cursor: pointer;
   border: none; background: var(--primary); color: #fff;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 8px 22px rgba(90, 60, 35, .22); transition: transform .18s ease;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .14); transition: background .15s ease;
 }
-.ask-fab:hover { transform: translateY(-2px); }
-.ask-fab .ico { width: 26px; height: 26px; fill: currentColor; }
+.ask-fab:hover { background: var(--primary-hover); }
+.ask-fab .ico { width: 22px; height: 22px; fill: currentColor; }
 .ask-panel {
   position: absolute; right: 0; bottom: 66px; width: 380px; max-width: calc(100vw - 32px);
-  background: var(--card); border: 1px solid var(--line); border-radius: 20px;
-  box-shadow: 0 18px 44px rgba(60, 44, 30, .18); overflow: hidden;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .12); overflow: hidden;
   display: flex; flex-direction: column; max-height: 62vh;
 }
 .ask-head {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 16px; border-bottom: 1px solid var(--line);
-  font-weight: 800; letter-spacing: -.2px;
+  padding: 10px 14px; border-bottom: 1px solid var(--line);
+  font-size: 13.5px; font-weight: 600;
 }
 .ask-head .mini { border: none; background: none; color: var(--text-2); font-size: 12.5px; cursor: pointer; padding: 4px 6px; }
 .ask-head .mini:hover { color: var(--text); }
-.ask-body { padding: 14px 16px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 10px; }
+.ask-body { padding: 12px 14px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 8px; }
 .ask-hello .muted { margin-bottom: 10px; }
 .ask-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .ask-msg { display: flex; }
 .ask-msg.user { justify-content: flex-end; }
 .bubble {
-  max-width: 84%; padding: 10px 14px; border-radius: 16px; font-size: 14.5px; line-height: 1.65;
+  max-width: 84%; padding: 8px 12px; border-radius: var(--r-box); font-size: 13px; line-height: 1.6;
   white-space: pre-wrap; word-break: break-word;
 }
-.ask-msg.ai .bubble { background: var(--card-alt); border: 1px solid var(--line); border-bottom-left-radius: 6px; }
-.ask-msg.user .bubble { background: var(--primary); color: #fff; border-bottom-right-radius: 6px; }
-.ask-foot { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); }
+.ask-msg.ai .bubble { background: var(--bg-sunken); border: 1px solid var(--line); border-bottom-left-radius: var(--r-sm); }
+.ask-msg.user .bubble { background: var(--primary); color: #fff; border-bottom-right-radius: var(--r-sm); }
+.ask-foot { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); }
 .ask-foot input { flex: 1; }
 .ask-send, .ask-stop {
-  border: none; border-radius: 999px; padding: 0 18px; cursor: pointer;
-  font-size: 14px; font-weight: 700; color: #fff; background: var(--primary); white-space: nowrap;
+  border: none; border-radius: var(--r-input); padding: 0 14px; cursor: pointer;
+  font-size: 12.5px; font-weight: 400; color: #fff; background: var(--primary); white-space: nowrap;
 }
 .ask-stop { background: var(--warning); }
 .ask-send:disabled { opacity: .4; cursor: not-allowed; }

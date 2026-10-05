@@ -8,9 +8,10 @@ export async function ensureTodayInstances() {
   await loadHolidays(dayjs().add(1, 'year').year()).catch(() => {})
   const t = today()
   const activeTasks = (await db.tasks.where('status').notEqual('archived').toArray()).filter(t => !t.deletedAt)
-  for (const task of activeTasks) {
-    if (!task.rrule) continue
-    const workday = await isWorkday(t)
+  const scheduled = activeTasks.filter(task => task.rrule)
+  if (!scheduled.length) return
+  const workday = await isWorkday(t) // 同一天只判一次，别在循环里反复读库
+  for (const task of scheduled) {
     if (!taskOccursOn(task, t, workday)) continue
     const exist = await db.taskInstances.where('[taskId+date]').equals([task.id, t]).count()
     if (exist === 0) {

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watchEffect, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
+import { ref, computed, watch, watchEffect, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
 import Fuse from 'fuse.js'
 import { NConfigProvider, NInput, NButton, NTag, NEmpty, zhCN, dateZhCN } from 'naive-ui'
 import Home from './views/Home.vue'
@@ -21,6 +21,17 @@ import { useModuleConfig, growthSub } from './composables'
 const reviewStatus = useReviewStatus()
 const profile = useProfile()
 
+// 侧栏折叠：收起后只剩图标条，状态记在本机
+const KEY_COLLAPSE = 'wb_side_collapsed'
+const collapsed = ref(localStorage.getItem(KEY_COLLAPSE) === '1')
+watchEffect(() => {
+  document.documentElement.classList.toggle('side-collapsed', collapsed.value)
+})
+function toggleSide() {
+  collapsed.value = !collapsed.value
+  localStorage.setItem(KEY_COLLAPSE, collapsed.value ? '1' : '0')
+}
+
 const tab = ref('home')
 // 线性图标（24 网格，描边随文字色），不用 emoji
 const ICONS = {
@@ -32,6 +43,10 @@ const ICONS = {
   settings: '<path d="M4 8h16"/><path d="M4 16h16"/><circle cx="9" cy="8" r="2.6"/><circle cx="15.5" cy="16" r="2.6"/>',
   search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5l5 5"/>',
   research: '<path d="M9 3h6"/><path d="M10 3v6l-4.4 8.2a3 3 0 0 0 2.6 4.3h7.6a3 3 0 0 0 2.6-4.3L14 9V3"/><path d="M7.9 14.5h8.2"/>',
+  foldL: '<path d="M14.5 6.5l-5 5.5 5 5.5"/>',
+  foldR: '<path d="M9.5 6.5l5 5.5-5 5.5"/>',
+  export: '<path d="M12 4v10"/><path d="M8.5 10.5L12 14l3.5-3.5"/><path d="M5 18h14"/>',
+  import: '<path d="M12 14V4"/><path d="M8.5 7.5L12 4l3.5 3.5"/><path d="M5 18h14"/>',
 }
 const tabs = [
   { key: 'home', icon: 'home', label: '今日' },
@@ -60,6 +75,8 @@ const showReviewModal = ref(false)
 function checkReviewModal(v) {
   if (v?.strong && !reviewDismissed.value) showReviewModal.value = true
 }
+// 复查提醒状态：强提醒（复盘日 / 周末兜底）一出现就弹窗
+watch(reviewStatus, v => checkReviewModal(v), { immediate: true })
 watchEffect(() => {
   if (!navTabs.value.some(t => t.key === tab.value)) tab.value = navTabs.value[0]?.key || 'settings'
 })
@@ -74,18 +91,27 @@ function laterReview() {
   reviewDismissed.value = true
 }
 
-// Naive UI 主题：暖可可主按钮；输入框统一加大
+// Naive UI 主题：与 style.css 的 token 对齐（单一蓝 #409eff、小圆角、紧凑尺寸）
 const themeOverrides = {
   common: {
-    primaryColor: '#4a3426',
-    primaryColorHover: '#5e4331',
-    primaryColorPressed: '#3a281c',
-    primaryColorSuppl: '#5e4331',
-    borderRadius: '12px',
-    heightMedium: '46px',
-    heightLarge: '52px',
-    fontSizeMedium: '16px',
-    fontSizeLarge: '17px',
+    primaryColor: '#409eff',
+    primaryColorHover: '#66b1ff',
+    primaryColorPressed: '#337ecc',
+    primaryColorSuppl: '#66b1ff',
+    borderRadius: '6px',
+    borderRadiusSmall: '4px',
+    heightSmall: '28px',
+    heightMedium: '32px',
+    heightLarge: '38px',
+    fontSizeSmall: '12px',
+    fontSizeMedium: '13px',
+    fontSizeLarge: '14px',
+    borderColor: '#e4e7ed',
+    dividerColor: '#ebeef5',
+    textColorBase: '#303133',
+    textColor1: '#303133',
+    textColor2: '#606266',
+    textColor3: '#a8abb2',
   },
 }
 
@@ -222,16 +248,19 @@ async function onImportFile(e) {
         <div class="mark"><img v-if="profile?.avatarData" :src="profile.avatarData" /><template v-else>{{ profile?.avatar || '✦' }}</template></div>
         <div class="name">{{ profile?.name || '我的' }}的工作台</div>
       </div>
-      <button v-for="t in navTabs" :key="t.key" :class="{ active: tab === t.key }" @click="tab = t.key">
-        <svg class="ico" viewBox="0 0 24 24" v-html="ICONS[t.icon]" aria-hidden="true"></svg>{{ t.label }}<span v-if="t.key === 'growth' && reviewStatus?.light" class="dot" />
+      <button v-for="t in navTabs" :key="t.key" :class="{ active: tab === t.key }" :title="collapsed ? t.label : ''" @click="tab = t.key">
+        <svg class="ico" viewBox="0 0 24 24" v-html="ICONS[t.icon]" aria-hidden="true"></svg><span class="label">{{ t.label }}</span><span v-if="t.key === 'growth' && reviewStatus?.light" class="dot" />
       </button>
-      <button @click="openSearch"><svg class="ico" viewBox="0 0 24 24" v-html="ICONS.search" aria-hidden="true"></svg>搜索</button>
+      <button @click="openSearch" :title="collapsed ? '搜索' : ''"><svg class="ico" viewBox="0 0 24 24" v-html="ICONS.search" aria-hidden="true"></svg><span class="label">搜索</span></button>
       <div class="side-only side-bubble">
         {{ profile?.signature || '今天留下痕迹，未来才看得见自己。' }}
       </div>
       <div class="side-only" style="margin-top:auto">
-        <button class="side-btn" @click="exportBackupFile">导出备份</button>
-        <button class="side-btn" @click="pickImport">导入备份</button>
+        <button class="side-btn side-fold" :title="collapsed ? '展开侧栏' : '收起侧栏'" @click="toggleSide">
+          <svg class="ico" viewBox="0 0 24 24" v-html="ICONS[collapsed ? 'foldR' : 'foldL']" aria-hidden="true"></svg><span class="label">{{ collapsed ? '展开' : '收起' }}</span>
+        </button>
+        <button class="side-btn" @click="exportBackupFile" :title="collapsed ? '导出备份' : ''"><svg class="ico" viewBox="0 0 24 24" v-html="ICONS.export" aria-hidden="true"></svg>导出备份</button>
+        <button class="side-btn" @click="pickImport" :title="collapsed ? '导入备份' : ''"><svg class="ico" viewBox="0 0 24 24" v-html="ICONS.import" aria-hidden="true"></svg>导入备份</button>
         <input ref="fileEl" type="file" accept="application/json" style="display:none" @change="onImportFile" />
       </div>
     </nav>

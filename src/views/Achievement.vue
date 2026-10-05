@@ -94,7 +94,8 @@ async function add() {
   })
   form.value = empty()
 }
-async function del(a) { await db.achievements.delete(a.id) }
+// 用 archivedAt 归档而不是物理删除：列表与搜索都按 archivedAt 过滤，删错了还能从库房找回
+async function del(a) { await db.achievements.update(a.id, { archivedAt: Date.now() }) }
 
 function pickImage() { fileEl.value?.click() }
 function onFile(e) {
@@ -118,17 +119,17 @@ function onFile(e) {
 </script>
 
 <style scoped>
-.ach-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
-@media (min-width: 720px) { .ach-grid { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); } }
+.ach-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+@media (min-width: 720px) { .ach-grid { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); } }
 .ach-card {
-  border: 1px solid var(--line); border-radius: 16px; background: #fff;
-  overflow: hidden; box-shadow: var(--shadow); padding-bottom: 10px;
+  border: 1px solid var(--line); border-radius: var(--radius); background: #fff;
+  overflow: hidden; padding-bottom: 8px;
 }
-.ach-img { width: 100%; height: 140px; object-fit: cover; display: block; }
-.ach-body { padding: 12px 14px 6px; }
-.ach-title { font-size: 16px; font-weight: 700; line-height: 1.4; }
-.ach-meta { font-size: 12.5px; color: var(--text-2); margin-top: 4px; }
-.ach-desc { font-size: 14px; color: var(--text-2); margin-top: 6px; line-height: 1.55; }
-.ach-card :deep(.n-button) { margin-left: 14px; }
-.ach-thumb img { width: 42px; height: 42px; border-radius: 10px; object-fit: cover; display: block; }
+.ach-img { width: 100%; height: 110px; object-fit: cover; display: block; }
+.ach-body { padding: 10px 12px 4px; }
+.ach-title { font-size: 14px; font-weight: 600; line-height: 1.4; }
+.ach-meta { font-size: 12px; color: var(--text-3); margin-top: 3px; }
+.ach-desc { font-size: 12.5px; color: var(--text-2); margin-top: 4px; line-height: 1.55; }
+.ach-card :deep(.n-button) { margin-left: 12px; }
+.ach-thumb img { width: 36px; height: 36px; border-radius: var(--r-box); object-fit: cover; display: block; }
 </style>

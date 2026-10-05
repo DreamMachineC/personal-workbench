@@ -212,6 +212,63 @@ db.version(10).stores({
   await tx.table('categories').toCollection().modify(c => { if (MAP[c.color]) c.color = MAP[c.color] })
 })
 
+// v11：番茄钟专注记录（每段专注 / 休息记一行；focus 模式结束会把时长累加到对应任务实例）
+db.version(11).stores({
+  profile: '++id',
+  categories: '++id, name',
+  tasks: '++id, title, type, categoryId, status, createdAt, deletedAt',
+  taskInstances: '++id, taskId, date, status, [taskId+date], [date+status]',
+  checkinItems: '++id, name',
+  checkins: '++id, itemId, date, [itemId+date]',
+  journals: '++id, date, createdAt, deletedAt',
+  events: '++id, date, title, source',
+  holidays: 'date, year',
+  quotes: '++id, date',
+  reviews: '++id, weekStart',
+  fitness: '++id, date, [date+parts]',
+  skills: '++id, name',
+  moods: '++id, &date',
+  researchProjects: '++id, name, status, directionId, createdAt, deletedAt',
+  researchDirections: '++id, name, archivedAt',
+  researchNotes: '++id, projectId, createdAt, deletedAt',
+  achievements: '++id, date, category, archivedAt',
+  assets: '++id, type, module, createdAt, deletedAt',
+  backups: '++id, createdAt',
+  moduleConfig: '++id, &key, order',
+  reports: '++id, &key, updatedAt',
+  focusSessions: '++id, startedAt, mode, taskId'
+})
+
+// v12：分类配色对齐新的浅灰 + 单色蓝体系（只映射旧默认色，用户自己调过的颜色不动）
+db.version(12).stores({
+  profile: '++id',
+  categories: '++id, name',
+  tasks: '++id, title, type, categoryId, status, createdAt, deletedAt',
+  taskInstances: '++id, taskId, date, status, [taskId+date], [date+status]',
+  checkinItems: '++id, name',
+  checkins: '++id, itemId, date, [itemId+date]',
+  journals: '++id, date, createdAt, deletedAt',
+  events: '++id, date, title, source',
+  holidays: 'date, year',
+  quotes: '++id, date',
+  reviews: '++id, weekStart',
+  fitness: '++id, date, [date+parts]',
+  skills: '++id, name',
+  moods: '++id, &date',
+  researchProjects: '++id, name, status, directionId, createdAt, deletedAt',
+  researchDirections: '++id, name, archivedAt',
+  researchNotes: '++id, projectId, createdAt, deletedAt',
+  achievements: '++id, date, category, archivedAt',
+  assets: '++id, type, module, createdAt, deletedAt',
+  backups: '++id, createdAt',
+  moduleConfig: '++id, &key, order',
+  reports: '++id, &key, updatedAt',
+  focusSessions: '++id, startedAt, mode, taskId'
+}).upgrade(async tx => {
+  const MAP = { '#4f8a7d': '#409eff', '#cf8f1f': '#67c23a', '#a4653f': '#e6a23c', '#a8799c': '#909399' }
+  await tx.table('categories').toCollection().modify(c => { if (MAP[c.color]) c.color = MAP[c.color] })
+})
+
 
 
 // 侧栏模块的默认清单（新增模块只需在此登记一行）
@@ -225,11 +282,24 @@ export const DEFAULT_MODULES = [
   { key: 'settings', label: '设置' },
 ]
 
-// ---------- 回收站：清理删除超过 30 天的内容 ----------
+// ---------- 回收站 ----------
+// 支持软删除的表：回收站展示与 30 天自动清理都以这份清单为准（新增软删除表时记得在这里登记）
+export const SOFT_DELETE_TABLES = [
+  'tasks', 'journals', 'checkinItems', 'researchProjects', 'researchNotes', 'assets',
+]
+
+// 清理删除超过 30 天的内容。用 filter 而不是 where，避免依赖每张表是否建了 deletedAt 索引
+// （checkinItems 就没有），也不会因为索引里查不到就漏掉清理
 export async function purgeDeleted() {
   const cutoff = Date.now() - 30 * 86400000
-  await db.tasks.where('deletedAt').below(cutoff).delete()
-  await db.journals.where('deletedAt').below(cutoff).delete()
+  for (const t of SOFT_DELETE_TABLES) {
+    const rows = await db[t].filter(r => !!r.deletedAt && r.deletedAt < cutoff).toArray()
+    if (!rows.length) continue
+    if (t === 'tasks') { // 计划的实例一并没意义，跟着一起清，免得留下孤儿实例污染统计
+      for (const r of rows) await db.taskInstances.where('taskId').equals(r.id).delete()
+    }
+    await db[t].bulkDelete(rows.map(r => r.id))
+  }
 }
 
 // ---------- 默认数据初始化 ----------
@@ -241,10 +311,10 @@ export async function initDefaults() {
   const catCount = await db.categories.count()
   if (catCount === 0) {
     await db.categories.bulkAdd([
-      { name: '学习', color: '#4f8a7d', system: false },
-      { name: '生活', color: '#cf8f1f', system: false },
-      { name: '工作', color: '#a4653f', system: false },
-      { name: '科研', color: '#a8799c', system: true, key: 'research' } // 系统保留分类，不可删除
+      { name: '学习', color: '#409eff', system: false },
+      { name: '生活', color: '#67c23a', system: false },
+      { name: '工作', color: '#e6a23c', system: false },
+      { name: '科研', color: '#909399', system: true, key: 'research' } // 系统保留分类，不可删除
     ])
   }
   // 科研分类的稳定标识（改名后仍认得出）：补 key

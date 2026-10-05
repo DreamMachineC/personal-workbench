@@ -59,11 +59,14 @@ const catOptions = computed(() => [
 
 async function addTask() {
   if (!form.value.title.trim()) return
+  // 长期目标是"一直挂着的一件事"，不该按天重复；否则每天生成实例还会掉进"搁浅的计划"
   let rrule = null
-  if (form.value.freq === 'daily') rrule = { freq: 'daily' }
-  if (form.value.freq === 'weekdays') rrule = { freq: 'weekdays' }
-  if (form.value.freq === 'weekly') rrule = { freq: 'weekly', byweekday: form.value.byweekday }
-  if (form.value.freq === 'interval') rrule = { freq: 'interval', interval: form.value.interval }
+  if (form.value.type !== 'long') {
+    if (form.value.freq === 'daily') rrule = { freq: 'daily' }
+    if (form.value.freq === 'weekdays') rrule = { freq: 'weekdays' }
+    if (form.value.freq === 'weekly') rrule = { freq: 'weekly', byweekday: form.value.byweekday }
+    if (form.value.freq === 'interval') rrule = { freq: 'interval', interval: form.value.interval }
+  }
   if (editId.value) { // 改已有的事：只动模板，历史实例保留（Plan 决策 #4）
     await db.tasks.update(editId.value, {
       title: form.value.title.trim(),
@@ -571,45 +574,45 @@ async function delTask(id) {
   </div>
 </template>
 <style scoped>
-.board { display: grid; grid-template-columns: 1fr; gap: 14px; margin-bottom: 18px; }
+.board { display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 12px; }
 @media (min-width: 900px) { .board { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-.board-col { background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 16px; box-shadow: var(--shadow); }
-.board-head { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 800; margin-bottom: 12px; }
-.board-cnt { font-size: 12.5px; font-weight: 700; color: var(--text-2); background: var(--bg-sunken); border-radius: 999px; padding: 2px 9px; }
-.board-list { min-height: 90px; display: flex; flex-direction: column; gap: 10px; }
-.board-item { background: var(--card-alt); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; cursor: grab; transition: box-shadow .18s, transform .18s; }
-.board-item:hover { box-shadow: var(--shadow-hover); transform: translateY(-2px); }
+.board-col { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; }
+.board-head { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+.board-cnt { font-size: 11.5px; font-weight: 400; color: var(--text-3); background: var(--bg-sunken); border-radius: var(--r-sm); padding: 1px 7px; }
+.board-list { min-height: 60px; display: flex; flex-direction: column; gap: 8px; }
+.board-item { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-box); padding: 10px 12px; cursor: grab; transition: border-color .15s; }
+.board-item:hover { border-color: var(--primary); }
 .board-item:active { cursor: grabbing; }
-.board-item .task-title { font-size: 15.5px; font-weight: 600; }
+.board-item .task-title { font-size: 13.5px; font-weight: 500; }
 .hday { padding: 12px 0 4px; }
-.haxis-label { font-size: 13px; font-weight: 800; color: var(--text-2); letter-spacing: .04em; margin: 0 0 10px 6px; }
-.axis-split { height: 1px; background: var(--line); margin: 26px 0 18px; }
-.htrack { position: relative; height: 132px; margin: 0 42px; }
-.htrack::before { content: ''; position: absolute; left: 0; right: 0; top: 64px; height: 3px; background: var(--bg-sunken); border-radius: 3px; }
-.htick i, .hnow i, .hnode i { position: absolute; left: 0; top: 64px; width: 2px; height: 9px; background: var(--line-2); }
-.hnow i { background: var(--danger); height: 132px; top: 0; }
-.htick em, .hnow em { position: absolute; top: 78px; left: 0; transform: translateX(-50%); font-size: 11.5px; font-style: normal; color: var(--text-2); white-space: nowrap; }
-.hnow em { top: -4px; color: var(--danger); font-weight: 800; }
+.haxis-label { font-size: 12px; font-weight: 400; color: var(--text-3); letter-spacing: .02em; margin: 0 0 8px 4px; }
+.axis-split { height: 1px; background: var(--line); margin: 16px 0 12px; }
+.htrack { position: relative; height: 96px; margin: 0 36px; }
+.htrack::before { content: ''; position: absolute; left: 0; right: 0; top: 47px; height: 1px; background: var(--line-2); }
+.htick i, .hnow i, .hnode i { position: absolute; left: 0; top: 47px; width: 1px; height: 7px; background: var(--line-2); }
+.hnow i { background: var(--danger); height: 96px; top: 0; }
+.htick em, .hnow em { position: absolute; top: 58px; left: 0; transform: translateX(-50%); font-size: 11px; font-style: normal; color: var(--text-3); white-space: nowrap; }
+.hnow em { top: -2px; color: var(--danger); font-weight: 500; }
 .hnode { cursor: pointer; }
-.hnode i { top: 58px; width: 2px; height: 18px; background: var(--pink); }
-.hnode em { position: absolute; top: 96px; left: 0; transform: translateX(-50%); max-width: 168px; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; font-style: normal; font-weight: 700; white-space: nowrap; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 2px 8px; }
-.hnode.up em { top: 8px; }
-.hnode.up i { top: 26px; }
+.hnode i { top: 41px; width: 1px; height: 13px; background: var(--primary); }
+.hnode em { position: absolute; top: 68px; left: 0; transform: translateX(-50%); max-width: 140px; overflow: hidden; text-overflow: ellipsis; font-size: 11.5px; font-style: normal; font-weight: 400; white-space: nowrap; background: #fff; border: 1px solid var(--line); border-radius: var(--r-sm); padding: 1px 6px; }
+.hnode.up em { top: 4px; }
+.hnode.up i { top: 18px; }
 .hnode.done i { background: var(--text); }
 .hnode.done em { color: var(--text-2); text-decoration: line-through; }
-.hfree { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 14px 6px 0; }
-.gantt-box { overflow-x: auto; background: var(--card-alt); border: 1px solid var(--line); border-radius: 16px; padding: 8px; }
+.hfree { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 10px 4px 0; }
+.gantt-box { overflow-x: auto; background: var(--bg-sunken); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; }
 .gantt-box .gantt .bar-wrapper.g-done .bar { fill: var(--text-3); }
 .gantt-box .gantt .bar-wrapper.g-done .bar-progress { fill: var(--text-2); }
-.gantt-box .gantt .bar-wrapper.g-late .bar { fill: #eec4bd; /* var(--danger) 55% + 白 */ }
+.gantt-box .gantt .bar-wrapper.g-late .bar { fill: #fde2e2; /* var(--danger) 淡色，逾期未完成 */ }
 .gantt-box .gantt .bar-wrapper.g-late .bar-progress { fill: var(--danger); }
-.gantt-box .gantt .bar-label { fill: var(--text); font-weight: 700; }
-.gantt-box .gantt .today-highlight { fill: rgba(196,82,60,.10); }
+.gantt-box .gantt .bar-label { fill: var(--text); font-weight: 500; }
+.gantt-box .gantt .today-highlight { fill: rgba(64,158,255,.08); }
 /* 说出来 → 候选清单 */
-.speak-list { display: flex; flex-direction: column; gap: 8px; }
-.speak-item { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.speak-list { display: flex; flex-direction: column; gap: 6px; }
+.speak-item { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .speak-title {
-  min-width: 180px; padding: 8px 12px; font: inherit; font-size: 14.5px; color: var(--text);
+  min-width: 160px; padding: 6px 10px; font: inherit; font-size: 13px; color: var(--text);
   background: var(--card-alt); border: 1px solid var(--line); border-radius: var(--r-input);
 }
 .speak-title:focus { outline: none; border-color: var(--primary-hover); }

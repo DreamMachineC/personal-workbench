@@ -98,17 +98,14 @@ async function delCheckin(c) {
 }
 
 // ---------- 回收站 ----------
-const binTasks = computed(() => (bin.value?.tasks || []).sort((a, b) => b.deletedAt - a.deletedAt))
-const binJournals = computed(() => (bin.value?.journals || []).sort((a, b) => b.deletedAt - a.deletedAt))
-const binCount = computed(() => binTasks.value.length + binJournals.value.length)
+const binRows = computed(() => bin.value || [])
+const binCount = computed(() => binRows.value.length)
 
-async function restoreTask(t) { await db.tasks.update(t.id, { deletedAt: undefined }) }
-async function purgeTask(t) {
-  await db.taskInstances.where('taskId').equals(t.id).delete()
-  await db.tasks.delete(t.id)
+async function restoreBin(r) { await db[r.table].update(r.id, { deletedAt: undefined }) }
+async function purgeBin(r) {
+  if (r.table === 'tasks') await db.taskInstances.where('taskId').equals(r.id).delete()
+  await db[r.table].delete(r.id)
 }
-async function restoreJournal(j) { await db.journals.update(j.id, { deletedAt: undefined }) }
-async function purgeJournal(j) { await db.journals.delete(j.id) }
 
 // ---------- 备份与每周快照 ----------
 const snaps = useLiveQuery(() => db.backups.orderBy('createdAt').reverse().toArray())
@@ -120,7 +117,7 @@ const snapRows = computed(() => (snaps.value || []).map(s => ({
 async function newSnap() { await takeSnapshot() }
 async function restoreSnap(id) {
   await restoreSnapshot(id)
-  alert('已回到那份快照，刷新页面后全部数据即为当时模样')
+  alert('已并回那份快照（本机比它新的内容不会被覆盖），刷新页面后即可看到')
 }
 async function delSnap(id) { await db.backups.delete(id) }
 
@@ -151,7 +148,7 @@ async function resetModules() {
       <template v-if="form">
         <div class="row" style="margin-bottom:10px">
           <img v-if="form.avatarData" :src="form.avatarData" class="avatar-img" style="width:52px;height:52px" />
-          <div v-else class="avatar-emoji" style="width:52px;height:52px;font-size:30px">{{ form.avatar }}</div>
+          <div v-else class="avatar-emoji" style="width:40px;height:40px;font-size:20px">{{ form.avatar }}</div>
           <div class="grow">
             <div class="row" style="flex-wrap:wrap">
               <n-button size="small" type="primary" secondary @click="pickAvatar">换一张头像</n-button>
@@ -177,7 +174,7 @@ async function resetModules() {
       <template v-else>
         <div class="row">
           <img v-if="profile?.avatarData" :src="profile.avatarData" class="avatar-img" style="width:52px;height:52px" />
-          <div v-else class="avatar-emoji" style="width:52px;height:52px;font-size:30px">{{ profile?.avatar }}</div>
+          <div v-else class="avatar-emoji" style="width:40px;height:40px;font-size:20px">{{ profile?.avatar }}</div>
           <div class="grow">
             <b>{{ profile?.name }}</b>
             <div class="muted">{{ profile?.signature }}</div>
@@ -262,24 +259,14 @@ async function resetModules() {
       <h3>回收站{{ binCount ? `（${binCount}）` : '' }}</h3>
       <div class="muted" style="margin-bottom:8px">删掉的东西先在这里躺 30 天，随时可以接回来</div>
       <n-empty v-if="!binCount" description="这里空空的，挺好" size="small" />
-      <div v-for="t in binTasks" :key="'t' + t.id" class="task-row">
+      <div v-for="r in binRows" :key="r.table + '-' + r.id" class="task-row">
         <div class="task-main">
-          <div class="task-title">计划 · {{ t.title }}</div>
+          <div class="task-title">{{ r.label }} · {{ r.text }}</div>
         </div>
-        <n-button size="tiny" type="primary" secondary @click="restoreTask(t)">接回来</n-button>
-        <n-popconfirm @positive-click="purgeTask(t)">
+        <n-button size="tiny" type="primary" secondary @click="restoreBin(r)">接回来</n-button>
+        <n-popconfirm @positive-click="purgeBin(r)">
           <template #trigger><n-button quaternary size="tiny" type="error">彻底抹去</n-button></template>
-          抹去之后就找不回了（连同它的打卡记录）
-        </n-popconfirm>
-      </div>
-      <div v-for="j in binJournals" :key="'j' + j.id" class="task-row">
-        <div class="task-main">
-          <div class="task-title">心声 · {{ j.text.slice(0, 30) }}<span v-if="j.text.length > 30">…</span></div>
-        </div>
-        <n-button size="tiny" type="primary" secondary @click="restoreJournal(j)">接回来</n-button>
-        <n-popconfirm @positive-click="purgeJournal(j)">
-          <template #trigger><n-button quaternary size="tiny" type="error">彻底抹去</n-button></template>
-          抹去之后就找不回了
+          抹去之后就找不回了{{ r.table === 'tasks' ? '（连同它的打卡记录）' : '' }}
         </n-popconfirm>
       </div>
     </div>
@@ -342,6 +329,6 @@ async function resetModules() {
 <style scoped>
 .mod-list { display: flex; flex-direction: column; gap: 8px; }
 .mod-row { align-items: center; }
-.mod-grip { cursor: grab; color: var(--text-2); font-size: 15px; letter-spacing: -2px; padding-right: 4px; user-select: none; }
+.mod-grip { cursor: grab; color: var(--text-3); font-size: 13px; letter-spacing: -1px; padding-right: 4px; user-select: none; }
 .mod-row:active .mod-grip { cursor: grabbing; }
 </style>

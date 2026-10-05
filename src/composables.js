@@ -2,13 +2,14 @@ import { liveQuery } from 'dexie'
 import { useObservable } from '@vueuse/rxjs'
 import { from } from 'rxjs'
 import dayjs from 'dayjs'
-import { db } from './db'
+import { db, SOFT_DELETE_TABLES } from './db'
 import { today, getWeekRange } from './date'
 import { ref, watchEffect, onScopeDispose } from 'vue'
 
 // Dexie liveQuery → Vue 响应式（数据变化 UI 自动更新）
 export function useLiveQuery(fn) {
-  return useObservable(from(liveQuery(fn)))
+  // 加 onError：任一 liveQuery 抛错时不要变成"静默空数据 + 未捕获异常"，至少能在控制台看到
+  return useObservable(from(liveQuery(fn)), { onError: e => console.error('[liveQuery]', e) })
 }
 
 export const useProfile = () => useLiveQuery(() => db.profile.get(1))
@@ -71,12 +72,31 @@ export function useLongTasks() {
   return useLiveQuery(async () => (await db.tasks.where('type').equals('long').toArray()).filter(t => !t.deletedAt))
 }
 
-// 回收站：被软删除的任务与碎碎念
+// 回收站：凡是被软删除的内容都要能在这里取回，也都要能被 30 天清理
+// 表清单以 db.js 的 SOFT_DELETE_TABLES 为唯一出处；这里只负责"取出来 + 起个能认的名字"
+const BIN_TEXT = {
+  tasks: r => r.title,
+  journals: r => r.text,
+  checkinItems: r => r.name,
+  researchProjects: r => r.name,
+  researchNotes: r => r.title || r.text,
+  assets: r => r.title || r.name || r.type,
+}
+const BIN_LABEL = {
+  tasks: '计划', journals: '心声', checkinItems: '打卡项',
+  researchProjects: '科研课题', researchNotes: '科研心得', assets: '库房',
+}
 export function useRecycleBin() {
   return useLiveQuery(async () => {
-    const tasks = (await db.tasks.where('deletedAt').notEqual(undefined).toArray()).filter(t => t.deletedAt)
-    const journals = (await db.journals.where('deletedAt').notEqual(undefined).toArray()).filter(j => j.deletedAt)
-    return { tasks, journals }
+    const out = []
+    for (const t of SOFT_DELETE_TABLES) {
+      for (const r of await db[t].filter(x => !!x.deletedAt).toArray()) {
+        const text = String(BIN_TEXT[t]?.(r) ?? '')
+        out.push({ table: t, label: BIN_LABEL[t] || t, id: r.id, deletedAt: r.deletedAt,
+          text: text.length > 30 ? text.slice(0, 30) + '…' : text })
+      }
+    }
+    return out.sort((a, b) => b.deletedAt - a.deletedAt)
   })
 }
 
@@ -87,7 +107,7 @@ export const useSkills = () => useLiveQuery(() => db.skills.filter(s => !s.archi
 // 连续天数 🔥：截至今天（今天未完成不打断），每天有打卡完成或任务完成即算
 export function useStreak() {
   return useLiveQuery(async () => {
-    const items = await db.checkinItems.toArray()
+    const items = (await db.checkinItems.toArray()).filter(i => !i.deletedAt)
     const doneMap = Object.fromEntries(items.map(i => [i.id, i]))
     const days = new Set()
     for (const r of await db.checkins.toArray()) {
@@ -96,7 +116,12 @@ export function useStreak() {
       const ok = it.type === 'bool' ? r.value >= 1 : r.value >= it.target
       if (ok) days.add(r.date)
     }
-    for (const i of await db.taskInstances.where('status').equals('done').toArray()) days.add(i.date)
+    // 已完成的任务实例：任务被删掉的不算，否则删了任务 streak 还挂着（与手帐页口径保持一致）
+    const taskMap = Object.fromEntries((await db.tasks.toArray()).map(t => [t.id, t]))
+    for (const i of await db.taskInstances.where('status').equals('done').toArray()) {
+      const t = taskMap[i.taskId]
+      if (t && !t.deletedAt) days.add(i.date)
+    }
     let streak = 0
     let d = dayjs(today())
     if (!days.has(d.format('YYYY-MM-DD'))) d = d.subtract(1, 'day')
@@ -213,11 +238,13 @@ export async function ensureResearchCategoryId() {
   const cats = await db.categories.toArray()
   const hit = cats.find(c => c.key === 'research' || c.name === '科研')
   if (hit) return hit.id
-  return await db.categories.add({ name: '科研', color: '#a8799c', system: true, key: 'research' })
+  return await db.categories.add({ name: '科研', color: '#909399', system: true, key: 'research' })
 }
 
 export function useJournals() {
-  return useLiveQuery(() => db.journals.orderBy('createdAt').reverse().toArray())
+  // 已收进回收站的随笔不进列表、不进统计、也不给 AI 看
+  return useLiveQuery(async () =>
+    (await db.journals.orderBy('createdAt').reverse().toArray()).filter(j => !j.deletedAt))
 }
 
 export function useQuote() {

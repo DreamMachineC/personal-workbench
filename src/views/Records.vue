@@ -17,7 +17,8 @@ const newJournal = ref('')
 
 // 打卡热力图数据：每日完成项数（近一年）
 const allRecords = useLiveQuery(() => db.checkins.toArray())
-const allItems = useLiveQuery(() => db.checkinItems.toArray())
+// 已删除的打卡项不再占热力图分母
+const allItems = useLiveQuery(async () => (await db.checkinItems.toArray()).filter(i => !i.deletedAt))
 const perDay = computed(() => {
   const items = Object.fromEntries((allItems.value || []).map(i => [i.id, i]))
   const m = {}
@@ -156,7 +157,7 @@ async function delJournal(id) {
         <div class="side-card">
           <div class="eyebrow teal">STREAK</div>
           <h3>坚持的温度</h3>
-          <div class="focus-num">{{ streak }}<span class="num-xl" style="font-size:16px; font-weight:600; color:var(--text-2)"> 天连着</span></div>
+          <div class="focus-num">{{ streak }}<span class="num-xl" style="font-size:13px; font-weight:400; color:var(--text-3)"> 天连着</span></div>
           <div class="mini-row" style="margin-top:16px">
             <div class="mini-top"><span>今日已完成</span><span class="mini-num" :class="{ ok: todayDone === todayTotal && todayTotal }">{{ todayDone }}/{{ todayTotal }}</span></div>
             <div class="mini-track"><div class="mini-fill" :class="{ ok: todayDone === todayTotal && todayTotal }" :style="{ width: (todayTotal ? todayDone / todayTotal * 100 : 0) + '%' }" /></div>
@@ -170,10 +171,10 @@ async function delJournal(id) {
           <div class="eyebrow">A YEAR</div>
           <h3>一年的坚持</h3>
           <CalendarHeatmap :values="heatmapValues" :end-date="today()" :max="heatmapMax"
-            tooltip-unit="项完成" :range-color="['#f4ece2','#dfe9cf','#bcd4a0','#97bd6d','#6f9a63']" />
+            tooltip-unit="项完成" :range-color="['#f0f9eb','#d5efc0','#aee08b','#88cc63','#67c23a']" />
           <div class="heat-legend">
             <span>少</span>
-            <i v-for="c in ['#f4ece2','#dfe9cf','#bcd4a0','#97bd6d','#6f9a63']" :key="c" :style="{ background: c }" />
+            <i v-for="c in ['#f0f9eb','#d5efc0','#aee08b','#88cc63','#67c23a']" :key="c" :style="{ background: c }" />
             <span>多</span>
           </div>
         </div>
@@ -238,7 +239,7 @@ async function delJournal(id) {
         <div class="side-card">
           <div class="eyebrow gold">WORDS</div>
           <h3>写的分量</h3>
-          <div class="focus-num">{{ (journals||[]).length }}<span class="num-xl" style="font-size:16px; font-weight:600; color:var(--text-2)"> 句心声</span></div>
+          <div class="focus-num">{{ (journals||[]).length }}<span class="num-xl" style="font-size:13px; font-weight:400; color:var(--text-3)"> 句心声</span></div>
           <div class="goal-row" style="margin-top:14px"><span class="goal-t">本月写下</span><span class="goal-d">{{ jMonth }} 句</span></div>
           <div class="goal-row"><span class="goal-t">连续写着</span><span class="goal-d">{{ jStreak }} 天</span></div>
           <div class="goal-row"><span class="goal-t">最早的一句</span><span class="goal-d">{{ (journals||[]).length ? [...journals].sort((a,b)=>a.date.localeCompare(b.date))[0].date : '—' }}</span></div>

@@ -15,7 +15,8 @@ const selected = ref(today())
 const holidays = useLiveQuery(() => db.holidays.toArray())
 const events = useLiveQuery(() => db.events.toArray())
 const instances = useLiveQuery(() => db.taskInstances.toArray())
-const tasks = useLiveQuery(() => db.tasks.toArray())
+// 已删除（软删除）的任务不进日历
+const tasks = useLiveQuery(async () => (await db.tasks.toArray()).filter(t => !t.deletedAt))
 // 科研待办只在科研页出现，不进总日历
 const researchIds = useLiveQuery(async () => [...(await researchCatIds())])
 const isResearch = id => (researchIds.value || []).includes(id)

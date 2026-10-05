@@ -82,10 +82,10 @@ const repData = useLiveQuery(async () => {
   const rIds = await researchCatIds()
   const taskMap = Object.fromEntries((await db.tasks.toArray()).map(t => [t.id, t]))
   return {
-    // 科研待办不进生活侧统计，只算在科研页
+    // 科研待办不进生活侧统计，只算在科研页；已删除的任务也不进周报/日报
     instances: (await db.taskInstances.toArray()).filter(i => {
       const t = taskMap[i.taskId]
-      return !(t && rIds.has(t.categoryId))
+      return !!t && !t.deletedAt && !rIds.has(t.categoryId)
     }),
     items: (await db.checkinItems.toArray()).filter(i => !i.deletedAt),
     checks: await db.checkins.toArray(),
@@ -419,8 +419,8 @@ function adoptWeek() {
 .report-box {
   background: var(--card-alt);
   border: 1px solid var(--line);
-  border-radius: 16px; padding: 16px 18px;
-  font-size: 14.5px; line-height: 1.8; white-space: pre-wrap;
+  border-radius: var(--radius); padding: 14px 16px;
+  font-size: 13px; line-height: 1.75; white-space: pre-wrap;
   font-family: inherit; margin-bottom: 12px;
 }
 .report-box.edit { width: 100%; resize: vertical; outline: none; }

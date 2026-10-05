@@ -245,7 +245,8 @@ async function toggleStatus(p) {
 }
 async function finish(p) {
   const done = p.status !== 'done'
-  await db.researchProjects.update(p.id, { status: done ? 'done' : 'active', progress: done ? 100 : p.progress })
+  // 重开一个已完成的课题：进度归零，否则进度条还是满的
+  await db.researchProjects.update(p.id, { status: done ? 'done' : 'active', progress: done ? 100 : 0 })
 }
 async function delProject(p) {
   await db.researchProjects.update(p.id, { deletedAt: Date.now() })
@@ -305,6 +306,6 @@ async function delEvent(e) { await db.events.delete(e.id) }
 </script>
 
 <style scoped>
-.pct { font-size: 13.5px; font-weight: 800; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.pct { font-size: 12px; font-weight: 400; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .task-row { flex-wrap: wrap; }
 </style>

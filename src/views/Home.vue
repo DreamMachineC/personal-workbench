@@ -24,6 +24,78 @@ const streak = useStreak()
 
 const emit = defineEmits(['goto'])
 
+// 首页快捷流：跳到别的模块（配合侧栏折叠，少点一次）
+const QUICK = [
+  { key: 'todos', label: '计划' },
+  { key: 'calendar', label: '日历' },
+  { key: 'records', label: '手帐' },
+  { key: 'growth', label: '成长' },
+  { key: 'research', label: '科研' },
+]
+
+// ---------- 番茄钟：倒计时结束自动把时长记到任务上，专注/休息轮着来 ----------
+const POMO_FOCUS = [25, 30, 40, 50]
+const pomo = ref({ mode: 'focus', minutes: 25, rest: 5, taskId: null, running: false, left: 0, startedAt: 0 })
+let pomoTimer = null
+
+const pomoOptions = computed(() => (instances.value || [])
+  .filter(i => i.status !== 'done')
+  .map(i => ({ label: i.task.title, value: i.id })))
+const pomoTotal = computed(() => (pomo.value.mode === 'focus' ? pomo.value.minutes : pomo.value.rest) * 60)
+const pomoClock = computed(() => {
+  const s = Math.max(0, pomo.value.left)
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+})
+const pomoPct = computed(() => pomoTotal.value ? Math.round((1 - pomo.value.left / pomoTotal.value) * 100) : 0)
+
+async function addFocus(instanceId, minutes) {
+  if (!instanceId || minutes < 1) return
+  const inst = await db.taskInstances.get(instanceId)
+  if (inst) await db.taskInstances.update(inst.id, { durationMin: (inst.durationMin || 0) + minutes })
+}
+function notify(text) {
+  try { if (window.Notification?.permission === 'granted') new Notification('工作台 · 番茄钟', { body: text }) } catch {}
+}
+function clearPomo() { if (pomoTimer) { clearInterval(pomoTimer); pomoTimer = null } }
+
+// 切走模块会卸载整个首页：计时器必须收干净，否则回来再点"开始"会有两个计时器
+// 同时在跑，专注时长被重复累加到同一个任务上。正在跑的这一段按已专注时长如实记账
+onUnmounted(() => {
+  if (pomo.value.running) finishPomo(true)
+  else clearPomo()
+})
+
+async function startPomo() {
+  if (!window.Notification) { /* 不支持就不打扰 */ }
+  else { try { await window.Notification.requestPermission() } catch {} }
+  pomo.value.startedAt = Date.now()
+  pomo.value.left = pomoTotal.value
+  pomo.value.running = true
+  clearPomo()
+  pomoTimer = setInterval(() => {
+    pomo.value.left = Math.round((pomo.value.startedAt + pomoTotal.value * 1000 - Date.now()) / 1000)
+    if (pomo.value.left <= 0) finishPomo(false)
+  }, 1000)
+}
+async function finishPomo(aborted) {
+  clearPomo()
+  const total = pomoTotal.value
+  const minutes = aborted ? Math.max(0, Math.floor((total - pomo.value.left) / 60)) : Math.round(total / 60)
+  const finishedAt = Date.now()
+  if (pomo.value.mode === 'focus') await addFocus(pomo.value.taskId, minutes)
+  await db.focusSessions.add({
+    startedAt: pomo.value.startedAt, endedAt: finishedAt,
+    minutes, mode: pomo.value.mode, taskId: pomo.value.taskId, finished: !aborted,
+  })
+  pomo.value.running = false
+  pomo.value.left = 0
+  if (aborted) return
+  notify(pomo.value.mode === 'focus'
+    ? `专注 ${minutes} 分钟完成，起来动一动`
+    : '休息结束，回到手上的事')
+  pomo.value.mode = pomo.value.mode === 'focus' ? 'rest' : 'focus' // 一段走完自动切到另一段
+}
+
 const catMap = computed(() => Object.fromEntries((categories.value || []).map(c => [c.id, c])))
 
 // 进度圈口径：分子=已完成实例、分母=当日实例数（长任务不在此列）
@@ -124,7 +196,8 @@ const allInstances = useLiveQuery(async () => {
   const taskMap = Object.fromEntries((await db.tasks.toArray()).map(t => [t.id, t]))
   return (await db.taskInstances.toArray()).filter(i => {
     const t = taskMap[i.taskId]
-    return !(t && rIds.has(t.categoryId))
+    // 排掉科研（走科研页）与已删除任务（否则删掉的任务仍进柱状图和投入时长）
+    return !!t && !t.deletedAt && !rIds.has(t.categoryId)
   })
 })
 const weekBars = computed(() => {
@@ -281,12 +354,39 @@ function focusAdd() { addInputEl.value?.focus?.() }
       </div>
       <div class="hero-ring">
         <CircleProgress :percent="pctToday" :size="124" :border-width="13"
-          fill-color="#2b2320" empty-color="#efe4d6" show-percent />
-        <div style="margin-top:10px; font-weight:700">
-          <span class="num-xl" style="font-size:30px">{{ doneToday }}</span><span class="sub">/{{ totalToday }} 今日完成</span>
+          fill-color="#409eff" empty-color="#ebeef5" show-percent />
+        <div style="margin-top:10px; font-weight:500">
+          <span class="num-xl">{{ doneToday }}</span><span class="sub">/{{ totalToday }} 今日完成</span>
         </div>
         <div class="muted">打卡 {{ checkinDone }}/{{ (checkins||[]).length }} 项 · 专注 {{ focusMinToday ? fmtDuration(focusMinToday) : '0m' }}</div>
       </div>
+    </div>
+
+    <!-- 快捷流：一跳到常用模块 -->
+    <div class="quick-flow">
+      <button v-for="q in QUICK" :key="q.key" @click="emit('goto', q.key)">{{ q.label }}<span class="arw">→</span></button>
+    </div>
+
+    <!-- 番茄钟：专注 / 休息轮转，结束自动记进今日专注与本周投入 -->
+    <div class="card pomo">
+      <div class="eyebrow">FOCUS</div>
+      <h3>番茄钟<span class="cnt">{{ pomo.mode === 'focus' ? '专注' : '休息' }}</span></h3>
+      <div class="pomo-clock">{{ pomoClock }}</div>
+      <div class="pomo-bar"><div class="pomo-fill" :style="{ width: pomoPct + '%' }" /></div>
+      <div class="pomo-row">
+        <select v-model.number="pomo.minutes" :disabled="pomo.running" aria-label="专注时长">
+          <option v-for="m in POMO_FOCUS" :key="m" :value="m">{{ m }} 分钟</option>
+        </select>
+        <select v-model="pomo.taskId" :disabled="pomo.running" aria-label="关联今日任务">
+          <option :value="null">不关联任务</option>
+          <option v-for="o in pomoOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+        </select>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button v-if="!pomo.running" class="btn" @click="startPomo">开始{{ pomo.mode === 'focus' ? '专注' : '休息' }}</button>
+        <button v-else class="btn plain" @click="finishPomo(true)">中止并记录</button>
+      </div>
+      <div class="muted" style="margin-top:8px">休息固定 5 分钟；走完一段自动切到另一段。</div>
     </div>
 
     <!-- 统计卡行：label 左 + 超大数字右 -->
@@ -299,7 +399,7 @@ function focusAdd() { addInputEl.value?.focus?.() }
 
     <!-- 每日名句 -->
     <div class="card" style="padding: 18px 24px">
-      <p style="font-size: 16px; color: var(--text-2); font-style: italic; text-align: center; font-weight: 600">
+      <p style="font-size: 13px; color: var(--text-2); text-align: center;">
         「 {{ quote || '…' }} 」
       </p>
     </div>
@@ -477,7 +577,7 @@ function focusAdd() { addInputEl.value?.focus?.() }
         <div class="eyebrow">MOOD</div>
         <h3>心绪曲线</h3>
         <div class="focus-num">
-          {{ moodAvg7 ? moodAvg7.toFixed(1) : '—' }}<span class="num-xl" style="font-size:16px; font-weight:600; color:var(--text-2)"> /5 · 近七天</span>
+          {{ moodAvg7 ? moodAvg7.toFixed(1) : '—' }}<span class="num-xl" style="font-size:13px; font-weight:400; color:var(--text-3)"> /5 · 近七天</span>
         </div>
         <svg v-if="moodDots.length" class="mood-chart" viewBox="0 0 300 96">
           <line x1="0" y1="88" x2="300" y2="88" stroke="var(--line)" stroke-width="1.5" />
@@ -507,50 +607,50 @@ function focusAdd() { addInputEl.value?.focus?.() }
 
 <style scoped>
 .chip-wrap { flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-.pill.sm { font-size: 13px; padding: 4px 11px; }
-.hero-grid { display: grid; grid-template-columns: 1fr; gap: 14px; margin-bottom: 18px; }
+.pill.sm { font-size: 12px; padding: 3px 10px; }
+.hero-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 12px; }
 @media (min-width: 640px) { .hero-grid { grid-template-columns: 1.6fr 1fr; } }
 .hero {
-  background: var(--pink); border-radius: var(--radius); padding: 26px;
-  color: var(--text); display: flex; flex-direction: column; gap: 10px;
-  box-shadow: var(--shadow); transition: transform .2s ease, box-shadow .2s ease;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px;
+  color: var(--text); display: flex; flex-direction: column; gap: 8px;
+  transition: border-color .15s ease;
 }
-.hero:hover { transform: translateY(-3px); box-shadow: var(--shadow-hover); }
+.hero:hover { border-color: var(--line-2); }
 .hero-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-.hero-eyebrow { font-size: 13px; font-weight: 800; letter-spacing: 2px; opacity: .75; }
-.hero-timer { font-size: 30px; font-weight: 800; letter-spacing: 1px; font-variant-numeric: tabular-nums; }
-.hero-title { font-size: 27px; font-weight: 900; letter-spacing: -.5px; line-height: 1.3; }
-.hero-sub { font-size: 15px; opacity: .8; margin-bottom: 8px; }
+.hero-eyebrow { font-size: 12px; font-weight: 400; letter-spacing: .5px; color: var(--text-3); }
+.hero-timer { font-size: 22px; font-weight: 600; letter-spacing: .5px; font-variant-numeric: tabular-nums; color: var(--primary); }
+.hero-title { font-size: 16px; font-weight: 600; line-height: 1.4; }
+.hero-sub { font-size: 12.5px; color: var(--text-2); margin-bottom: 6px; }
 .hero .btn-dark { align-self: flex-start; }
 .hero-ring {
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  text-align: center; box-shadow: var(--shadow);
+  padding: 14px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center;
 }
-.bars { display: flex; gap: 12px; align-items: stretch; padding-top: 6px; }
+.bars { display: flex; gap: 10px; align-items: stretch; padding-top: 2px; }
 .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.bar-track { height: 130px; width: 100%; max-width: 44px; display: flex; align-items: flex-end; background: var(--bg-sunken); border-radius: 10px; overflow: hidden; }
-.bar { width: 100%; background: var(--line); border-radius: 10px; display: flex; flex-direction: column; justify-content: flex-end; transition: height .4s ease; }
-.bar-done { width: 100%; background: var(--pink); border-radius: 10px; transition: height .4s ease; }
-.bar-lb { font-size: 13px; font-weight: 600; color: var(--text-2); }
-.bar-num { font-size: 12.5px; font-weight: 800; color: var(--text); }
+.bar-track { height: 72px; width: 100%; max-width: 32px; display: flex; align-items: flex-end; background: var(--bg-sunken); border-radius: var(--r-sm); overflow: hidden; }
+.bar { width: 100%; background: var(--line); border-radius: var(--r-sm); display: flex; flex-direction: column; justify-content: flex-end; transition: height .4s ease; }
+.bar-done { width: 100%; background: var(--primary); border-radius: var(--r-sm); transition: height .4s ease; }
+.bar-lb { font-size: 11.5px; font-weight: 400; color: var(--text-3); }
+.bar-num { font-size: 11.5px; font-weight: 500; color: var(--text-2); }
 
 /* 今日 AI 见闻 */
-.news-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0 26px; }
-.news-row { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.news-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0 20px; }
+.news-row { padding: 8px 0; border-bottom: 1px solid var(--line); }
 .news-row:last-child { border-bottom: none; }
 .news-t {
-  display: block; font-size: 15px; font-weight: 600; line-height: 1.45; color: var(--text);
+  display: block; font-size: 13.5px; font-weight: 500; line-height: 1.45; color: var(--text);
   text-decoration: none; transition: color .18s ease;
 }
 .news-t:hover { color: var(--text-accent); }
 .news-m {
   display: flex; align-items: center; gap: 10px; margin-top: 5px;
-  font-size: 12.5px; font-weight: 700; color: var(--text-2);
+  font-size: 12px; font-weight: 400; color: var(--text-3);
 }
-.news-orig { font-size: 12.5px; color: var(--text-3); margin-top: 3px; }
+.news-orig { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
 .news-src {
-  padding: 1px 8px; border-radius: 999px;
+  padding: 1px 6px; border-radius: var(--r-sm); font-size: 11.5px;
   background: var(--accent-soft); color: var(--text-accent);
 }
 </style>
