@@ -1,57 +1,56 @@
-"""生成暖色系 PWA 图标（暖可可底 + 暖砂进度环）。
+"""生成 PWA 图标（蓝底圆角方块 +「工」字）。
 
-沿用原图标的构图（圆角方块 + 一圈进度环），只把配色从旧的「深灰底 + 冷青环」
-换成工作台当前色板：--primary 暖可可 #4a3426 / --shell 暖砂 #ecdcbf。
+配色取自工作台当前色板：--primary #409eff（全站唯一强调色），字为纯白。
+构图刻意做得简单：一个圆角方块加一个字，缩到 16px 也认得出。
 4 倍超采样后缩放，保证边缘平滑；不使用渐变（设计禁区）。
+
+用法：python3 scripts/make-icons.py
+（macOS 的 .icns 另需 iconset + `iconutil -c icns`，不走这个脚本。）
 """
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
-COCOA = (74, 52, 38, 255)      # --primary 暖可可
-SAND = (236, 220, 191, 255)    # --shell 暖砂
-TRACK = (107, 84, 66, 255)     # 环底：可可略提亮
+PRIMARY = (64, 158, 255, 255)   # --primary #409eff
+WHITE = (255, 255, 255, 255)    # 方块上的字
 SS = 4                          # 超采样倍数
-START = -90                     # 起点在 12 点方向
-SWEEP = 232                     # 已完成部分约 64%
+RADIUS = 0.22                   # 圆角占边长比例
+
+# macOS 上 PingFang.ttc 常常读不到，Hiragino Sans GB 是稳定的中文形来源
+FONT_CANDIDATES = [
+    ("/System/Library/Fonts/Hiragino Sans GB.ttc", 0),
+    ("/Library/Fonts/Arial Unicode.ttf", 0),
+]
 
 
-def rounded_bg(size, radius_ratio=0.225, full_bleed=False):
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    if full_bleed:
-        d.rectangle([0, 0, size, size], fill=COCOA)
-    else:
-        r = int(size * radius_ratio)
-        d.rounded_rectangle([0, 0, size - 1, size - 1], radius=r, fill=COCOA)
-    return img
+def load_font(px):
+    for path, idx in FONT_CANDIDATES:
+        try:
+            return ImageFont.truetype(path, px, index=idx)
+        except Exception:
+            continue
+    return ImageFont.load_default()
 
 
-def draw_ring(img, size, ring_ratio=0.60, stroke_ratio=0.115):
-    """ring_ratio：环直径占画布比例（maskable 要更小才落在安全区）。"""
+def make(size, glyph_ratio=0.56):
+    """glyph_ratio：字高占画布比例。maskable 要更小才落在圆形安全区内。"""
     s = size * SS
-    img_big = img.resize((s, s), Image.LANCZOS)
-    d = ImageDraw.Draw(img_big)
-    d_ring = s * ring_ratio
-    stroke = s * stroke_ratio
-    box = [(s - d_ring) / 2, (s - d_ring) / 2, (s + d_ring) / 2, (s + d_ring) / 2]
-    d.arc(box, START, START + 360, fill=TRACK, width=int(stroke))
-    d.arc(box, START, START + SWEEP, fill=SAND, width=int(stroke))
-    return img_big.resize((size, size), Image.LANCZOS)
-
-
-def make(size, full_bleed=False, ring_ratio=0.60):
-    base = rounded_bg(size * SS, full_bleed=full_bleed)
-    img = draw_ring(base, size, ring_ratio=ring_ratio)
-    return img
+    img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle([0, 0, s - 1, s - 1], radius=int(s * RADIUS), fill=PRIMARY)
+    f = load_font(max(8, int(s * glyph_ratio)))
+    bbox = d.textbbox((0, 0), "工", font=f)
+    w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    d.text(((s - w) / 2 - bbox[0], (s - h) / 2 - bbox[1]), "工", font=f, fill=WHITE)
+    return img.resize((size, size), Image.LANCZOS)
 
 
 if __name__ == "__main__":
     import os
-    out = os.path.join(os.path.dirname(__file__), "..", "public", "icons")
-    out = os.path.abspath(out)
+
+    out = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "public", "icons"))
     make(192).save(os.path.join(out, "icon-192.png"))
     make(512).save(os.path.join(out, "icon-512.png"))
-    # maskable：整幅铺底，环缩到 0.42 保证落在圆形安全区内
-    make(512, full_bleed=True, ring_ratio=0.42).save(os.path.join(out, "maskable-512.png"))
-    # iOS 会自己加圆角，所以铺满不留透明
-    make(180, full_bleed=True).save(os.path.join(out, "apple-touch-icon.png"))
+    # maskable：字缩到 0.46，保证落在系统裁出的圆形安全区内
+    make(512, glyph_ratio=0.46).save(os.path.join(out, "maskable-512.png"))
+    # iOS 自己会加圆角，所以铺满不留透明
+    make(180).save(os.path.join(out, "apple-touch-icon.png"))
     print("icons written to", out)
