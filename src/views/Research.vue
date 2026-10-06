@@ -243,7 +243,8 @@ const activeProjects = computed(() => (projects.value || []).filter(p => p.statu
 const avgProgress = computed(() => {
   const list = activeProjects.value
   if (!list.length) return 0
-  return Math.round(list.reduce((s, p) => s + (p.progress || 0), 0) / list.length)
+  // 用 progressOf，跟课题卡上那条进度同一口径（挂了子任务的按完成率算）
+  return Math.round(list.reduce((s, p) => s + progressOf(p), 0) / list.length)
 })
 const todoDone = computed(() => (todos.value || []).filter(r => r.inst?.status === 'done').length)
 const countOf = id => (projects.value || []).filter(p => p.directionId === id).length
