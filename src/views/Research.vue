@@ -28,13 +28,27 @@
                 <span>{{ statusLabel(p) }}</span>
                 <span v-if="p.note">{{ p.note }}</span>
               </div>
+              <!-- 子任务：课题拆出来的"下一步"，完成率反过来决定上面那条进度 -->
+              <div v-if="subsOf(p.id).length" class="subs">
+                <div v-for="s in subsOf(p.id)" :key="s.id" class="sub-row">
+                  <div class="circle" :class="{ done: s.done }" @click="toggleSub(s)">✓</div>
+                  <span class="sub-t" :class="{ done: s.done }">{{ s.title }}</span>
+                  <button class="sub-x" title="删掉这一步" @click="delSub(s)">×</button>
+                </div>
+              </div>
+              <div class="row" style="margin-top:6px; gap:6px">
+                <n-input v-model:value="subDraft[p.id]" placeholder="下一步要做什么" size="small" class="grow"
+                  @keyup.enter="addSub(p)" />
+                <n-button size="small" type="primary" @click="addSub(p)">添一步</n-button>
+              </div>
+
               <div class="mini-track" style="margin-top:7px">
-                <div class="mini-fill" :class="{ ok: p.progress >= 100 }" :style="{ width: (p.progress || 0) + '%' }" />
+                <div class="mini-fill" :class="{ ok: progressOf(p) >= 100 }" :style="{ width: progressOf(p) + '%' }" />
               </div>
             </div>
             <div class="row" style="flex-wrap:wrap; justify-content:flex-end">
-              <span class="pct">{{ p.progress || 0 }}%</span>
-              <button class="pill" v-if="p.status !== 'done'" @click="bump(p, 10)">＋10</button>
+              <span class="pct">{{ progressOf(p) }}%{{ subsOf(p.id).length ? ' · 自动' : '' }}</span>
+              <button class="pill" v-if="p.status !== 'done' && !subsOf(p.id).length" @click="bump(p, 10)">＋10</button>
               <button class="pill" v-if="p.status !== 'done'" @click="toggleStatus(p)">{{ p.status === 'paused' ? '继续' : '暂搁' }}</button>
               <button class="pill" :class="{ on: p.status === 'done' }" @click="finish(p)">{{ p.status === 'done' ? '重开' : '收束' }}</button>
               <n-popconfirm @positive-click="delProject(p)">
@@ -172,13 +186,14 @@ import dayjs from 'dayjs'
 import { db } from '../db'
 import { today } from '../date'
 import {
-  useResearchProjects, useResearchDirections, useResearchNotes,
+  useResearchProjects, useResearchDirections, useResearchNotes, useResearchSubtasks,
   useResearchTodos, useResearchEvents, ensureResearchCategoryId
 } from '../composables'
 
 const projects = useResearchProjects()
 const directions = useResearchDirections()
 const notes = useResearchNotes()
+const subtasks = useResearchSubtasks()
 const todos = useResearchTodos()
 const events = useResearchEvents()
 
@@ -199,6 +214,25 @@ const projOptions = computed(() => [
   { label: '不挂课题', value: null },
   ...(projects.value || []).map(p => ({ label: p.name, value: p.id })),
 ])
+
+// 子任务：课题下的"下一步"。挂了子任务的课题，进度由完成率算出来，不再手动加减
+const subsOf = id => (subtasks.value || []).filter(s => s.projectId === id)
+const progressOf = p => {
+  const list = subsOf(p.id)
+  if (!list.length) return p.progress || 0
+  return Math.round(list.filter(s => s.done).length / list.length * 100)
+}
+const subDraft = ref({})
+async function addSub(p) {
+  const t = (subDraft.value[p.id] || '').trim()
+  if (!t) return
+  await db.researchSubtasks.add({
+    projectId: p.id, title: t, done: false, createdAt: Date.now(), deletedAt: undefined,
+  })
+  subDraft.value = { ...subDraft.value, [p.id]: '' }
+}
+async function toggleSub(s) { await db.researchSubtasks.update(s.id, { done: !s.done }) }
+async function delSub(s) { await db.researchSubtasks.update(s.id, { deletedAt: Date.now() }) }
 
 const statusLabel = p => ({ active: '推进中', paused: '暂搁', done: '已收束' }[p.status] || '推进中')
 const sortedProjects = computed(() => [...(projects.value || [])].sort((a, b) => {
@@ -308,4 +342,14 @@ async function delEvent(e) { await db.events.delete(e.id) }
 <style scoped>
 .pct { font-size: 12px; font-weight: 400; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .task-row { flex-wrap: wrap; }
+/* 子任务清单 */
+.subs { margin: 7px 0 0; border-left: 1px solid var(--line); padding-left: 8px; }
+.sub-row { display: flex; align-items: center; gap: 7px; padding: 3px 0; }
+.sub-t { flex: 1; font-size: 12.5px; color: var(--text); }
+.sub-t.done { color: var(--text-3); text-decoration: line-through; }
+.sub-x {
+  border: none; background: none; color: var(--text-3); cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 0 2px;
+}
+.sub-x:hover { color: var(--danger); }
 </style>

@@ -217,6 +217,40 @@ const timedItems = computed(() => (instances.value || [])
 const untimedItems = computed(() => (instances.value || []).filter(i => !i.task?.defaultTime))
 const tlItems = computed(() => [...timedItems.value, ...untimedItems.value])
 
+// ---------- 日程：给当天的事分时段 ----------
+const SCH_START = 6, SCH_END = 24, SCH_ROW = 44 // 06:00–24:00，一格 44px
+const SCH_HOURS = Array.from({ length: SCH_END - SCH_START }, (_, i) => SCH_START + i)
+const pick = ref(null) // 正在给哪个时段挑事
+const fmtMin = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+
+// 只认亲手排进去的时段：执行时刻（时间轴用）不自动落位，否则「×」取不出来、也挪不动
+const scheduled = computed(() => {
+  const items = (instances.value || [])
+    .filter(i => i.startTime)
+    .map(i => {
+      const s = toMin(i.startTime)
+      return { ...i, s, e: toMin(i.endTime) ?? s + 60 }
+    })
+    .sort((a, b) => a.s - b.s)
+  return items.map((b, k) => {
+    const s = Math.min(Math.max(b.s, SCH_START * 60), SCH_END * 60 - 15)
+    const e = Math.min(Math.max(b.e, s + 15), SCH_END * 60)
+    const clash = items.some((o, j) => j !== k && b.s < o.e && o.s < b.e)
+    return { ...b, top: (s - SCH_START * 60) / 60 * SCH_ROW + 2, h: (e - s) / 60 * SCH_ROW - 4,
+      clash, span: `${fmtMin(s)}–${fmtMin(e)}` }
+  })
+})
+const unscheduled = computed(() => (instances.value || []).filter(i => !i.startTime))
+
+function assign(i, h) {
+  const s = `${String(h).padStart(2, '0')}:00`
+  const e = `${String(Math.min(h + 1, 24)).padStart(2, '0')}:00`
+  return db.taskInstances.update(i.id, { startTime: s, endTime: e }).then(() => { pick.value = null })
+}
+function clearBlock(b) {
+  return db.taskInstances.update(b.id, { startTime: null, endTime: null })
+}
+
 const nowMin = ref(null)
 let clock = null
 onMounted(() => {
@@ -402,6 +436,7 @@ async function delTask(id) {
           <button class="pill" :class="{ on: view === 'list' }" @click="view = 'list'">清单</button>
           <button class="pill" :class="{ on: view === 'timeline' }" @click="view = 'timeline'">时间轴</button>
           <button class="pill" :class="{ on: view === 'board' }" @click="view = 'board'">看板</button>
+          <button class="pill" :class="{ on: view === 'schedule' }" @click="view = 'schedule'">日程</button>
           <button class="pill" :class="{ on: withResearch }" @click="withResearch = !withResearch"
             title="科研待办默认不在此页">含科研</button>
         </div>
@@ -463,6 +498,33 @@ async function delTask(id) {
               </div>
             </div>
           </VueDraggable>
+        </div>
+      </div>
+
+      <!-- 日程：把这一天切成时段，事情放进去 -->
+      <div v-else-if="view === 'schedule'" class="card">
+        <h3>{{ dayLabel }}的时段<span class="cnt">已排 {{ scheduled.length }} 件 · 未排 {{ unscheduled.length }} 件</span></h3>
+        <div class="sch">
+          <div v-for="h in SCH_HOURS" :key="h" class="sch-row">
+            <span class="sch-h">{{ String(h).padStart(2, '0') }}:00</span>
+            <button class="sch-slot" :title="`把事情排到 ${h} 点`" @click="pick = (pick === h ? null : h)">＋</button>
+          </div>
+          <div v-for="b in scheduled" :key="b.id" class="sch-block" :class="{ done: b.status === 'done', clash: b.clash }"
+            :style="{ top: b.top + 'px', height: b.h + 'px' }">
+            <span class="sch-t">{{ b.task.title }}</span>
+            <span class="sch-d">{{ b.span }}</span>
+            <button class="sch-x" title="取消排程" @click.stop="clearBlock(b)">×</button>
+          </div>
+        </div>
+        <div v-if="pick !== null" class="sch-pick">
+          <span class="muted">排到 {{ String(pick).padStart(2, '0') }}:00 →</span>
+          <button v-for="i in unscheduled" :key="i.id" class="pill" @click="assign(i, pick)">
+            <span v-if="i.task.defaultTime" class="sch-hint">⏰{{ i.task.defaultTime }}</span>{{ i.task.title }}
+          </button>
+          <button class="pill" @click="pick = null">算了</button>
+        </div>
+        <div v-if="!scheduled.length && !unscheduled.length" class="empty-box">
+          这一天还没有事。<br />先去上面「今日之计」里定几件，再来给它们分时段。
         </div>
       </div>
 
@@ -616,4 +678,34 @@ async function delTask(id) {
   background: var(--card-alt); border: 1px solid var(--line); border-radius: var(--r-input);
 }
 .speak-title:focus { outline: none; border-color: var(--primary-hover); }
+
+/* 日程（时间块排程） */
+.sch { position: relative; }
+.sch-row { display: flex; align-items: center; gap: 8px; height: 44px; border-bottom: 1px solid var(--line); }
+.sch-row:last-child { border-bottom: none; }
+.sch-h { width: 46px; flex-shrink: 0; font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.sch-slot {
+  flex: 1; height: 34px; margin-left: 6px;
+  border: 1px dashed var(--line); border-radius: var(--r-sm);
+  background: #fff; color: var(--text-3); font-size: 14px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: all .15s;
+}
+.sch-slot:hover { border-color: var(--primary); color: var(--primary); }
+.sch-block {
+  position: absolute; left: 60px; right: 0; display: flex; align-items: center; gap: 8px;
+  padding: 0 10px; border-radius: var(--r-sm);
+  background: var(--primary-soft); border: 1px solid #c6e2ff;
+  font-size: 12.5px; color: var(--text); overflow: hidden;
+  transition: opacity .15s;
+  pointer-events: none; /* 让底下时段的「＋」仍然点得到 */
+}
+.sch-block.done { opacity: .55; }
+.sch-block.done .sch-t { text-decoration: line-through; }
+.sch-block.clash { background: var(--danger-soft); border-color: #fbc4c4; }
+.sch-t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sch-d { font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.sch-x { border: none; background: none; color: var(--text-3); cursor: pointer; font-size: 15px; line-height: 1; padding: 0 2px; flex-shrink: 0; pointer-events: auto; }
+.sch-x:hover { color: var(--danger); }
+.sch-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.sch-hint { color: var(--text-3); font-size: 11.5px; margin-right: 4px; font-variant-numeric: tabular-nums; }
 </style>

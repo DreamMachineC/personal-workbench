@@ -269,6 +269,34 @@ db.version(12).stores({
   await tx.table('categories').toCollection().modify(c => { if (MAP[c.color]) c.color = MAP[c.color] })
 })
 
+// v13：时间块排程（实例上挂时段）+ 科研课题子任务
+db.version(13).stores({
+  profile: '++id',
+  categories: '++id, name',
+  tasks: '++id, title, type, categoryId, status, createdAt, deletedAt',
+  taskInstances: '++id, taskId, date, status, [taskId+date], [date+status]',
+  checkinItems: '++id, name',
+  checkins: '++id, itemId, date, [itemId+date]',
+  journals: '++id, date, createdAt, deletedAt',
+  events: '++id, date, title, source',
+  holidays: 'date, year',
+  quotes: '++id, date',
+  reviews: '++id, weekStart',
+  fitness: '++id, date, [date+parts]',
+  skills: '++id, name',
+  moods: '++id, &date',
+  researchProjects: '++id, name, status, directionId, createdAt, deletedAt',
+  researchDirections: '++id, name, archivedAt',
+  researchNotes: '++id, projectId, createdAt, deletedAt',
+  researchSubtasks: '++id, projectId, done, createdAt, deletedAt',
+  achievements: '++id, date, category, archivedAt',
+  assets: '++id, type, module, createdAt, deletedAt',
+  backups: '++id, createdAt',
+  moduleConfig: '++id, &key, order',
+  reports: '++id, &key, updatedAt',
+  focusSessions: '++id, startedAt, mode, taskId'
+})
+
 
 
 // 侧栏模块的默认清单（新增模块只需在此登记一行）
@@ -285,7 +313,8 @@ export const DEFAULT_MODULES = [
 // ---------- 回收站 ----------
 // 支持软删除的表：回收站展示与 30 天自动清理都以这份清单为准（新增软删除表时记得在这里登记）
 export const SOFT_DELETE_TABLES = [
-  'tasks', 'journals', 'checkinItems', 'researchProjects', 'researchNotes', 'assets',
+  'tasks', 'journals', 'checkinItems', 'researchProjects', 'researchNotes',
+  'researchSubtasks', 'assets',
 ]
 
 // 清理删除超过 30 天的内容。用 filter 而不是 where，避免依赖每张表是否建了 deletedAt 索引
@@ -295,8 +324,12 @@ export async function purgeDeleted() {
   for (const t of SOFT_DELETE_TABLES) {
     const rows = await db[t].filter(r => !!r.deletedAt && r.deletedAt < cutoff).toArray()
     if (!rows.length) continue
-    if (t === 'tasks') { // 计划的实例一并没意义，跟着一起清，免得留下孤儿实例污染统计
+    // 清理计划时实例一并没意义，清理课题时子任务同理 —— 免得留下孤儿行污染统计
+    if (t === 'tasks') {
       for (const r of rows) await db.taskInstances.where('taskId').equals(r.id).delete()
+    }
+    if (t === 'researchProjects') {
+      for (const r of rows) await db.researchSubtasks.where('projectId').equals(r.id).delete()
     }
     await db[t].bulkDelete(rows.map(r => r.id))
   }

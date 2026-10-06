@@ -4,7 +4,8 @@ import { today } from './date'
 const TABLES = [
   'profile', 'categories', 'tasks', 'taskInstances', 'checkinItems', 'checkins',
   'journals', 'events', 'holidays', 'quotes', 'reviews', 'fitness', 'skills', 'moods',
-  'researchProjects', 'researchDirections', 'researchNotes', 'achievements', 'assets',
+  'researchProjects', 'researchDirections', 'researchNotes', 'researchSubtasks',
+  'achievements', 'assets',
   'moduleConfig', 'reports', // 侧栏模块的显隐/排序、日报周报草稿，缺了换设备就丢
   'focusSessions'
 ]

@@ -50,7 +50,7 @@ export function useDayInstances(day, includeResearchRef = null) {
       return list
         .map(i => ({ ...i, task: map[i.taskId] }))
         .filter(i => i.task && !i.task.deletedAt && i.task.type !== 'long' && !rIds.has(i.task.categoryId))
-    })).subscribe(v => { res.value = v })
+    })).subscribe({ next: v => { res.value = v }, error: e => console.error('[liveQuery:day]', e) })
   })
   onScopeDispose(() => { if (sub) sub.unsubscribe() })
   return res
@@ -80,11 +80,13 @@ const BIN_TEXT = {
   checkinItems: r => r.name,
   researchProjects: r => r.name,
   researchNotes: r => r.title || r.text,
+  researchSubtasks: r => r.title,
   assets: r => r.title || r.name || r.type,
 }
 const BIN_LABEL = {
   tasks: '计划', journals: '心声', checkinItems: '打卡项',
-  researchProjects: '科研课题', researchNotes: '科研心得', assets: '库房',
+  researchProjects: '科研课题', researchNotes: '科研心得',
+  researchSubtasks: '课题子任务', assets: '库房',
 }
 export function useRecycleBin() {
   return useLiveQuery(async () => {
@@ -214,6 +216,9 @@ export const useResearchNotes = () => useLiveQuery(async () =>
   (await db.researchNotes.toArray()).filter(n => !n.deletedAt).sort((a, b) => b.createdAt - a.createdAt))
 export const useResearchEvents = () => useLiveQuery(async () =>
   (await db.events.toArray()).filter(e => e.source === 'research').sort((a, b) => a.date.localeCompare(b.date)))
+// 科研子任务：挂在课题下的"下一步"，完成率反过来驱动课题进度
+export const useResearchSubtasks = () => useLiveQuery(async () =>
+  (await db.researchSubtasks.toArray()).filter(s => !s.deletedAt).sort((a, b) => a.createdAt - b.createdAt))
 
 // 科研待办：复用 task 表（categoryId 属科研分类），只取短/重复类；长线目标走 researchProjects
 export function useResearchTodos() {
